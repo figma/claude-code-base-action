@@ -75,13 +75,13 @@ runs:
   using: "composite"
   steps:
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: figma/actions-setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
       with:
         node-version: "18.x"
         cache: ${{ inputs.use_node_cache == 'true' && 'npm' || '' }}
 
     - name: Install Bun
-      uses: oven-sh/setup-bun@v2
+      uses: figma/actions-setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2
       with:
         bun-version: 1.2.11
 
