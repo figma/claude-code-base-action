@@ -36,7 +36,6 @@ inputs:
   anthropic_model:
     description: "DEPRECATED: Use 'model' instead. Model to use (provider-specific format required for Bedrock/Vertex)"
     required: false
-    default: "claude-3-7-sonnet-20250219"
 
   # Action settings
   timeout_minutes:
@@ -93,7 +92,7 @@ runs:
 
     - name: Install Claude Code
       shell: bash
-      run: npm install -g @anthropic-ai/claude-code@^0.2.117
+      run: npm install -g @anthropic-ai/claude-code@^1.0.2
 
     - name: Run Claude Code Action
       shell: bash
