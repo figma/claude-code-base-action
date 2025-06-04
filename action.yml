@@ -30,12 +30,24 @@ inputs:
     description: "MCP configuration as JSON string or path to MCP configuration JSON file"
     required: false
     default: ""
+  system_prompt:
+    description: "Override system prompt"
+    required: false
+    default: ""
+  append_system_prompt:
+    description: "Append to system prompt"
+    required: false
+    default: ""
   model:
     description: "Model to use (provider-specific format required for Bedrock/Vertex)"
     required: false
   anthropic_model:
     description: "DEPRECATED: Use 'model' instead. Model to use (provider-specific format required for Bedrock/Vertex)"
     required: false
+  claude_env:
+    description: "Custom environment variables to pass to Claude Code execution (YAML multiline format)"
+    required: false
+    default: ""
 
   # Action settings
   timeout_minutes:
@@ -76,7 +88,7 @@ runs:
     - name: Setup Node.js
       uses: figma/actions-setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4
       with:
-        node-version: "18.x"
+        node-version: ${{ env.NODE_VERSION || '18.x' }}
         cache: ${{ inputs.use_node_cache == 'true' && 'npm' || '' }}
 
     - name: Install Bun
@@ -92,12 +104,17 @@ runs:
 
     - name: Install Claude Code
       shell: bash
-      run: npm install -g @anthropic-ai/claude-code@1.0.2
+      run: npm install -g @anthropic-ai/claude-code@1.0.9
 
     - name: Run Claude Code Action
       shell: bash
       id: run_claude
       run: |
+        # Change to CLAUDE_WORKING_DIR if set (for running in custom directories)
+        if [ -n "$CLAUDE_WORKING_DIR" ]; then
+          echo "Changing directory to CLAUDE_WORKING_DIR: $CLAUDE_WORKING_DIR"
+          cd "$CLAUDE_WORKING_DIR"
+        fi
         bun run ${{ github.action_path }}/src/index.ts
       env:
         # Model configuration
@@ -109,10 +126,14 @@ runs:
         INPUT_DISALLOWED_TOOLS: ${{ inputs.disallowed_tools }}
         INPUT_MAX_TURNS: ${{ inputs.max_turns }}
         INPUT_MCP_CONFIG: ${{ inputs.mcp_config }}
+        INPUT_SYSTEM_PROMPT: ${{ inputs.system_prompt }}
+        INPUT_APPEND_SYSTEM_PROMPT: ${{ inputs.append_system_prompt }}
         INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout_minutes }}
+        INPUT_CLAUDE_ENV: ${{ inputs.claude_env }}
 
         # Provider configuration
         ANTHROPIC_API_KEY: ${{ inputs.anthropic_api_key }}
+        ANTHROPIC_BASE_URL: ${{ env.ANTHROPIC_BASE_URL }}
         # Only set provider flags if explicitly true, since any value (including "false") is truthy
         CLAUDE_CODE_USE_BEDROCK: ${{ inputs.use_bedrock == 'true' && '1' || '' }}
         CLAUDE_CODE_USE_VERTEX: ${{ inputs.use_vertex == 'true' && '1' || '' }}

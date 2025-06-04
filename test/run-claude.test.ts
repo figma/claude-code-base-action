@@ -63,6 +63,29 @@ describe("prepareRunConfig", () => {
     expect(prepared.claudeArgs).toContain("/path/to/mcp-config.json");
   });
 
+  test("should include system prompt in command arguments", () => {
+    const options: ClaudeOptions = {
+      systemPrompt: "You are a senior backend engineer.",
+    };
+    const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+
+    expect(prepared.claudeArgs).toContain("--system-prompt");
+    expect(prepared.claudeArgs).toContain("You are a senior backend engineer.");
+  });
+
+  test("should include append system prompt in command arguments", () => {
+    const options: ClaudeOptions = {
+      appendSystemPrompt:
+        "After writing code, be sure to code review yourself.",
+    };
+    const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+
+    expect(prepared.claudeArgs).toContain("--append-system-prompt");
+    expect(prepared.claudeArgs).toContain(
+      "After writing code, be sure to code review yourself.",
+    );
+  });
+
   test("should use provided prompt path", () => {
     const options: ClaudeOptions = {};
     const prepared = prepareRunConfig("/custom/prompt/path.txt", options);
@@ -78,6 +101,8 @@ describe("prepareRunConfig", () => {
     expect(prepared.claudeArgs).not.toContain("--disallowedTools");
     expect(prepared.claudeArgs).not.toContain("--max-turns");
     expect(prepared.claudeArgs).not.toContain("--mcp-config");
+    expect(prepared.claudeArgs).not.toContain("--system-prompt");
+    expect(prepared.claudeArgs).not.toContain("--append-system-prompt");
   });
 
   test("should preserve order of claude arguments", () => {
@@ -97,5 +122,101 @@ describe("prepareRunConfig", () => {
       "--max-turns",
       "3",
     ]);
+  });
+
+  describe("maxTurns validation", () => {
+    test("should accept valid maxTurns value", () => {
+      const options: ClaudeOptions = { maxTurns: "5" };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.claudeArgs).toContain("--max-turns");
+      expect(prepared.claudeArgs).toContain("5");
+    });
+
+    test("should throw error for non-numeric maxTurns", () => {
+      const options: ClaudeOptions = { maxTurns: "abc" };
+      expect(() => prepareRunConfig("/tmp/test-prompt.txt", options)).toThrow(
+        "maxTurns must be a positive number, got: abc",
+      );
+    });
+
+    test("should throw error for negative maxTurns", () => {
+      const options: ClaudeOptions = { maxTurns: "-1" };
+      expect(() => prepareRunConfig("/tmp/test-prompt.txt", options)).toThrow(
+        "maxTurns must be a positive number, got: -1",
+      );
+    });
+
+    test("should throw error for zero maxTurns", () => {
+      const options: ClaudeOptions = { maxTurns: "0" };
+      expect(() => prepareRunConfig("/tmp/test-prompt.txt", options)).toThrow(
+        "maxTurns must be a positive number, got: 0",
+      );
+    });
+  });
+
+  describe("custom environment variables", () => {
+    test("should parse empty claudeEnv correctly", () => {
+      const options: ClaudeOptions = { claudeEnv: "" };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({});
+    });
+
+    test("should parse single environment variable", () => {
+      const options: ClaudeOptions = { claudeEnv: "API_KEY: secret123" };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({ API_KEY: "secret123" });
+    });
+
+    test("should parse multiple environment variables", () => {
+      const options: ClaudeOptions = {
+        claudeEnv: "API_KEY: secret123\nDEBUG: true\nUSER: testuser",
+      };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({
+        API_KEY: "secret123",
+        DEBUG: "true",
+        USER: "testuser",
+      });
+    });
+
+    test("should handle environment variables with spaces around values", () => {
+      const options: ClaudeOptions = {
+        claudeEnv: "API_KEY:  secret123  \n  DEBUG  :  true  ",
+      };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({
+        API_KEY: "secret123",
+        DEBUG: "true",
+      });
+    });
+
+    test("should skip empty lines and comments", () => {
+      const options: ClaudeOptions = {
+        claudeEnv:
+          "API_KEY: secret123\n\n# This is a comment\nDEBUG: true\n# Another comment",
+      };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({
+        API_KEY: "secret123",
+        DEBUG: "true",
+      });
+    });
+
+    test("should skip lines without colons", () => {
+      const options: ClaudeOptions = {
+        claudeEnv: "API_KEY: secret123\nINVALID_LINE\nDEBUG: true",
+      };
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({
+        API_KEY: "secret123",
+        DEBUG: "true",
+      });
+    });
+
+    test("should handle undefined claudeEnv", () => {
+      const options: ClaudeOptions = {};
+      const prepared = prepareRunConfig("/tmp/test-prompt.txt", options);
+      expect(prepared.env).toEqual({});
+    });
   });
 });
