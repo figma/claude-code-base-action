@@ -14,7 +14,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
         with:
           fetch-depth: 0
 
@@ -23,18 +23,20 @@ jobs:
           mkdir -p /tmp/mcp-config
           cat > /tmp/mcp-config/mcp-servers.json << 'EOF'
           {
-            "github": {
-              "command": "docker",
-              "args": [
-                "run",
-                "-i",
-                "--rm",
-                "-e",
-                "GITHUB_PERSONAL_ACCESS_TOKEN",
-                "ghcr.io/github/github-mcp-server:sha-7aced2b"
-              ],
-              "env": {
-                "GITHUB_PERSONAL_ACCESS_TOKEN": "${{ secrets.GITHUB_TOKEN }}"
+            "mcpServers": {
+              "github": {
+                "command": "docker",
+                "args": [
+                  "run",
+                  "-i",
+                  "--rm",
+                  "-e",
+                  "GITHUB_PERSONAL_ACCESS_TOKEN",
+                  "ghcr.io/github/github-mcp-server:sha-7aced2b"
+                ],
+                "env": {
+                  "GITHUB_PERSONAL_ACCESS_TOKEN": "${{ secrets.GITHUB_TOKEN }}"
+                }
               }
             }
           }
@@ -49,7 +51,7 @@ jobs:
           IMPORTANT: Don't post any comments or messages to the issue. Your only action should be to apply labels.
 
           Issue Information:
-          - REPO: ${{ github.repository }}
+          - REPO: ${GITHUB_REPOSITORY}
           - ISSUE_NUMBER: ${{ github.event.issue.number }}
 
           TASK OVERVIEW:
@@ -93,12 +95,14 @@ jobs:
           - Your ONLY action should be to apply labels using mcp__github__update_issue
           - It's okay to not add any labels if none are clearly applicable
           EOF
+        env:
+          GITHUB_REPOSITORY: ${{ github.repository }}
 
       - name: Run Claude Code for Issue Triage
         uses: anthropics/claude-code-base-action@beta
         with:
           prompt_file: /tmp/claude-prompts/triage-prompt.txt
           allowed_tools: "Bash(gh label list),mcp__github__get_issue,mcp__github__get_issue_comments,mcp__github__update_issue,mcp__github__search_issues,mcp__github__list_issues"
-          mcp_config: /tmp/mcp-config/mcp-servers.json
-          timeout_minutes: "5"
+          claude_args: |
+            --mcp-config /tmp/mcp-config/mcp-servers.json
           anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
