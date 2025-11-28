@@ -1,7 +1,7 @@
 import * as core from "@actions/core";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { unlink, writeFile, stat } from "fs/promises";
+import { unlink, writeFile, stat, readFile } from "fs/promises";
 import { createWriteStream } from "fs";
 import { spawn } from "child_process";
 import { parse as parseShellArgs } from "shell-quote";
@@ -11,6 +11,59 @@ const execAsync = promisify(exec);
 const PIPE_PATH = `${process.env.RUNNER_TEMP}/claude_prompt_pipe`;
 const EXECUTION_FILE = `${process.env.RUNNER_TEMP}/claude-execution-output.json`;
 const BASE_ARGS = ["--verbose", "--output-format", "stream-json"];
+
+/**
+ * Sanitizes JSON output to remove sensitive information when full output is disabled
+ * Returns a safe summary message or null if the message should be completely suppressed
+ */
+function sanitizeJsonOutput(
+  jsonObj: any,
+  showFullOutput: boolean,
+): string | null {
+  if (showFullOutput) {
+    // In full output mode, return the full JSON
+    return JSON.stringify(jsonObj, null, 2);
+  }
+
+  // In non-full-output mode, provide minimal safe output
+  const type = jsonObj.type;
+  const subtype = jsonObj.subtype;
+
+  // System initialization - safe to show
+  if (type === "system" && subtype === "init") {
+    return JSON.stringify(
+      {
+        type: "system",
+        subtype: "init",
+        message: "Claude Code initialized",
+        model: jsonObj.model || "unknown",
+      },
+      null,
+      2,
+    );
+  }
+
+  // Result messages - Always show the final result
+  if (type === "result") {
+    // These messages contain the final result and should always be visible
+    return JSON.stringify(
+      {
+        type: "result",
+        subtype: jsonObj.subtype,
+        is_error: jsonObj.is_error,
+        duration_ms: jsonObj.duration_ms,
+        num_turns: jsonObj.num_turns,
+        total_cost_usd: jsonObj.total_cost_usd,
+        permission_denials: jsonObj.permission_denials,
+      },
+      null,
+      2,
+    );
+  }
+
+  // For any other message types, suppress completely in non-full-output mode
+  return null;
+}
 
 export type ClaudeOptions = {
   claudeArgs?: string;
@@ -24,6 +77,7 @@ export type ClaudeOptions = {
   appendSystemPrompt?: string;
   claudeEnv?: string;
   fallbackModel?: string;
+  showFullOutput?: string;
 };
 
 type PreparedConfig = {
@@ -68,8 +122,53 @@ export function prepareRunConfig(
   };
 }
 
+/**
+ * Parses structured_output from execution file and sets GitHub Action outputs
+ * Only runs if --json-schema was explicitly provided in claude_args
+ * Exported for testing
+ */
+export async function parseAndSetStructuredOutputs(
+  executionFile: string,
+): Promise<void> {
+  try {
+    const content = await readFile(executionFile, "utf-8");
+    const messages = JSON.parse(content) as {
+      type: string;
+      structured_output?: Record<string, unknown>;
+    }[];
+
+    // Search backwards - result is typically last or second-to-last message
+    const result = messages.findLast(
+      (m) => m.type === "result" && m.structured_output,
+    );
+
+    if (!result?.structured_output) {
+      throw new Error(
+        `--json-schema was provided but Claude did not return structured_output.\n` +
+          `Found ${messages.length} messages. Result exists: ${!!result}\n`,
+      );
+    }
+
+    // Set the complete structured output as a single JSON string
+    // This works around GitHub Actions limitation that composite actions can't have dynamic outputs
+    const structuredOutputJson = JSON.stringify(result.structured_output);
+    core.setOutput("structured_output", structuredOutputJson);
+    core.info(
+      `Set structured_output with ${Object.keys(result.structured_output).length} field(s)`,
+    );
+  } catch (error) {
+    if (error instanceof Error) {
+      throw error; // Preserve original error and stack trace
+    }
+    throw new Error(`Failed to parse structured outputs: ${error}`);
+  }
+}
+
 export async function runClaude(promptPath: string, options: ClaudeOptions) {
   const config = prepareRunConfig(promptPath, options);
+
+  // Detect if --json-schema is present in claude args
+  const hasJsonSchema = options.claudeArgs?.includes("--json-schema") ?? false;
 
   // Create a named pipe
   try {
@@ -138,12 +237,27 @@ export async function runClaude(promptPath: string, options: ClaudeOptions) {
     pipeStream.destroy();
   });
 
+  // Determine if full output should be shown
+  // Show full output if explicitly set to "true" OR if GitHub Actions debug mode is enabled
+  const isDebugMode = process.env.ACTIONS_STEP_DEBUG === "true";
+  let showFullOutput = options.showFullOutput === "true" || isDebugMode;
+
+  if (isDebugMode && options.showFullOutput !== "false") {
+    console.log("Debug mode detected - showing full output");
+    showFullOutput = true;
+  } else if (!showFullOutput) {
+    console.log("Running Claude Code (full output hidden for security)...");
+    console.log(
+      "Rerun in debug mode or enable `show_full_output: true` in your workflow file for full output.",
+    );
+  }
+
   // Capture output for parsing execution metrics
   let output = "";
   claudeProcess.stdout.on("data", (data) => {
     const text = data.toString();
 
-    // Try to parse as JSON and pretty print if it's on a single line
+    // Try to parse as JSON and handle based on verbose setting
     const lines = text.split("\n");
     lines.forEach((line: string, index: number) => {
       if (line.trim() === "") return;
@@ -151,17 +265,24 @@ export async function runClaude(promptPath: string, options: ClaudeOptions) {
       try {
         // Check if this line is a JSON object
         const parsed = JSON.parse(line);
-        const prettyJson = JSON.stringify(parsed, null, 2);
-        process.stdout.write(prettyJson);
-        if (index < lines.length - 1 || text.endsWith("\n")) {
-          process.stdout.write("\n");
+        const sanitizedOutput = sanitizeJsonOutput(parsed, showFullOutput);
+
+        if (sanitizedOutput) {
+          process.stdout.write(sanitizedOutput);
+          if (index < lines.length - 1 || text.endsWith("\n")) {
+            process.stdout.write("\n");
+          }
         }
       } catch (e) {
-        // Not a JSON object, print as is
-        process.stdout.write(line);
-        if (index < lines.length - 1 || text.endsWith("\n")) {
-          process.stdout.write("\n");
+        // Not a JSON object
+        if (showFullOutput) {
+          // In full output mode, print as is
+          process.stdout.write(line);
+          if (index < lines.length - 1 || text.endsWith("\n")) {
+            process.stdout.write("\n");
+          }
         }
+        // In non-full-output mode, suppress non-JSON output
       }
     });
 
@@ -232,8 +353,23 @@ export async function runClaude(promptPath: string, options: ClaudeOptions) {
       core.warning(`Failed to process output for execution metrics: ${e}`);
     }
 
-    core.setOutput("conclusion", "success");
     core.setOutput("execution_file", EXECUTION_FILE);
+
+    // Parse and set structured outputs only if user provided --json-schema in claude_args
+    if (hasJsonSchema) {
+      try {
+        await parseAndSetStructuredOutputs(EXECUTION_FILE);
+      } catch (error) {
+        const errorMessage =
+          error instanceof Error ? error.message : String(error);
+        core.setFailed(errorMessage);
+        core.setOutput("conclusion", "failure");
+        process.exit(1);
+      }
+    }
+
+    // Set conclusion to success if we reached here
+    core.setOutput("conclusion", "success");
   } else {
     core.setOutput("conclusion", "failure");
 
