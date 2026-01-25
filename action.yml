@@ -82,6 +82,9 @@ outputs:
   structured_output:
     description: "JSON string containing all structured output fields when --json-schema is provided in claude_args (use fromJSON() or jq to parse)"
     value: ${{ steps.run_claude.outputs.structured_output }}
+  session_id:
+    description: "The Claude Code session ID that can be used with --resume to continue this conversation"
+    value: ${{ steps.run_claude.outputs.session_id }}
 
 runs:
   using: "composite"
@@ -96,15 +99,17 @@ runs:
       if: inputs.path_to_bun_executable == ''
       uses: figma/actions-setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2
       with:
-        bun-version: 1.2.11
+        bun-version: 1.3.6
 
     - name: Setup Custom Bun Path
       if: inputs.path_to_bun_executable != ''
       shell: bash
+      env:
+        PATH_TO_BUN_EXECUTABLE: ${{ inputs.path_to_bun_executable }}
       run: |
-        echo "Using custom Bun executable: ${{ inputs.path_to_bun_executable }}"
+        echo "Using custom Bun executable: $PATH_TO_BUN_EXECUTABLE"
         # Add the directory containing the custom executable to PATH
-        BUN_DIR=$(dirname "${{ inputs.path_to_bun_executable }}")
+        BUN_DIR=$(dirname "$PATH_TO_BUN_EXECUTABLE")
         echo "$BUN_DIR" >> "$GITHUB_PATH"
 
     - name: Install Dependencies
@@ -115,14 +120,17 @@ runs:
 
     - name: Install Claude Code
       shell: bash
+      env:
+        PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
       run: |
-        if [ -z "${{ inputs.path_to_claude_code_executable }}" ]; then
-          CLAUDE_CODE_VERSION="2.0.55"
+        if [ -z "$PATH_TO_CLAUDE_CODE_EXECUTABLE" ]; then
+          CLAUDE_CODE_VERSION="2.1.19"
           echo "Installing Claude Code v${CLAUDE_CODE_VERSION}..."
           for attempt in 1 2 3; do
             echo "Installation attempt $attempt..."
             if command -v timeout &> /dev/null; then
-              timeout 120 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && break
+              # Use --foreground to kill entire process group on timeout, --kill-after to send SIGKILL if SIGTERM fails
+              timeout --foreground --kill-after=10 120 bash -c "curl -fsSL https://claude.ai/install.sh | bash -s -- $CLAUDE_CODE_VERSION" && break
             else
               curl -fsSL https://claude.ai/install.sh | bash -s -- "$CLAUDE_CODE_VERSION" && break
             fi
@@ -135,9 +143,9 @@ runs:
           done
           echo "Claude Code installed successfully"
         else
-          echo "Using custom Claude Code executable: ${{ inputs.path_to_claude_code_executable }}"
+          echo "Using custom Claude Code executable: $PATH_TO_CLAUDE_CODE_EXECUTABLE"
           # Add the directory containing the custom executable to PATH
-          CLAUDE_DIR=$(dirname "${{ inputs.path_to_claude_code_executable }}")
+          CLAUDE_DIR=$(dirname "$PATH_TO_CLAUDE_CODE_EXECUTABLE")
           echo "$CLAUDE_DIR" >> "$GITHUB_PATH"
         fi
 
