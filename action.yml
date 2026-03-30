@@ -116,7 +116,7 @@ runs:
       shell: bash
       run: |
         cd ${GITHUB_ACTION_PATH}
-        bun install
+        bun install --production
 
     - name: Install Claude Code
       shell: bash
@@ -124,7 +124,7 @@ runs:
         PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
       run: |
         if [ -z "$PATH_TO_CLAUDE_CODE_EXECUTABLE" ]; then
-          CLAUDE_CODE_VERSION="2.1.33"
+          CLAUDE_CODE_VERSION="2.1.87"
           echo "Installing Claude Code v${CLAUDE_CODE_VERSION}..."
           for attempt in 1 2 3; do
             echo "Installation attempt $attempt..."
