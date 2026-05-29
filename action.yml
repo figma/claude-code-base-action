@@ -99,7 +99,7 @@ runs:
       if: inputs.path_to_bun_executable == ''
       uses: figma/actions-setup-bun@4bc047ad259df6fc24a6c9b0f9a0cb08cf17fbe5 # v2
       with:
-        bun-version: 1.3.6
+        bun-version: 1.3.14
 
     - name: Setup Custom Bun Path
       if: inputs.path_to_bun_executable != ''
@@ -124,7 +124,7 @@ runs:
         PATH_TO_CLAUDE_CODE_EXECUTABLE: ${{ inputs.path_to_claude_code_executable }}
       run: |
         if [ -z "$PATH_TO_CLAUDE_CODE_EXECUTABLE" ]; then
-          CLAUDE_CODE_VERSION="2.1.132"
+          CLAUDE_CODE_VERSION="2.1.157"
           echo "Installing Claude Code v${CLAUDE_CODE_VERSION}..."
           for attempt in 1 2 3; do
             echo "Installation attempt $attempt..."
